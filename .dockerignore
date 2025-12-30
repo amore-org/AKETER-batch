@@ -1,0 +1,34 @@
+# Python
+__pycache__
+*.py[cod]
+*$py.class
+*.so
+.Python
+.venv
+venv/
+ENV/
+env/
+
+# Git
+.git
+.gitignore
+.gitattributes
+
+# IDE
+.vscode
+.idea
+*.swp
+*.swo
+*~
+
+# 테스트
+.pytest_cache
+.coverage
+htmlcov/
+*.cover
+
+# 기타
+README.md
+.DS_Store
+.env.local
+.env.*.local

@@ -1,10 +1,44 @@
 [project]
 name = "aketer-batch"
-version = "0.1.0"
-description = "Add your description here"
+version = "1.0.0"
+description = "AKETER 페르소나 클러스터링 배치 시스템"
 readme = "README.md"
 requires-python = ">=3.14"
 dependencies = [
+    # FastAPI 및 웹 프레임워크
     "fastapi[standard]>=0.128.0",
     "uvicorn>=0.40.0",
+    "pydantic>=2.10.0",
+    "pydantic-settings>=2.6.0",
+
+    # CLI 및 유틸리티
+    "typer>=0.12.0",
+    "python-dotenv>=1.0.0",
+
+    # 데이터베이스
+    "sqlalchemy>=2.0.36",
+    "pymysql>=1.1.0",
+    "cryptography>=43.0.0",
+
+    # 클러스터링 및 데이터 처리
+    "numpy>=1.26.4",
+    "pandas>=2.2.3",
+    "scikit-learn>=1.6.0",
+
+    # LLM
+    "openai>=1.57.0",
+
+    # 스케줄러
+    "apscheduler>=3.10.4",
+
+    # 유틸리티
+    "python-dateutil>=2.9.0",
+    "tenacity>=9.0.0",
 ]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["app"]

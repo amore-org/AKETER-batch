@@ -1,33 +1,56 @@
-# Python 3.14 기반 이미지
-FROM python:3.14-slim AS base
+# Python 3.11을 기반으로 하는 멀티스테이지 빌드
+FROM python:3.11-slim as builder
+
+# 작업 디렉토리 설정
+WORKDIR /build
+
+# 시스템 의존성 설치 (빌드용)
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    gcc \
+    g++ \
+    build-essential \
+    libgomp1 \
+    && rm -rf /var/lib/apt/lists/*
+
+# Python 의존성 복사 및 설치
+COPY requirements.txt .
+RUN pip install --no-cache-dir --user -r requirements.txt
+
+# 최종 실행 이미지
+FROM python:3.11-slim
 
 # 작업 디렉토리 설정
 WORKDIR /app
 
-# 시스템 의존성 설치
-RUN apt-get update && \
-    apt-get install -y --no-install-recommends \
+# 시스템 의존성 설치 (런타임용)
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    libgomp1 \
     curl \
     && rm -rf /var/lib/apt/lists/*
 
-# uv 설치
-COPY --from=ghcr.io/astral-sh/uv:latest /uv /usr/local/bin/uv
+# builder 스테이지에서 설치한 Python 패키지 복사
+COPY --from=builder /root/.local /root/.local
 
-# 의존성 파일 복사
-COPY pyproject.toml uv.lock ./
-
-# 의존성 설치
-RUN uv sync --frozen --no-cache
+# PATH에 로컬 bin 추가
+ENV PATH=/root/.local/bin:$PATH
+ENV PYTHONUNBUFFERED=1
 
 # 애플리케이션 코드 복사
-COPY . .
+COPY ./app /app/app
+COPY .env.example /app/.env
+
+# ChromaDB 데이터 디렉토리 생성
+RUN mkdir -p /app/chroma_db
+
+# 볼륨 설정 (ChromaDB 데이터 영구 저장)
+VOLUME ["/app/chroma_db"]
 
 # 포트 노출
 EXPOSE 8000
 
-# 환경 변수 설정
-ENV PYTHONUNBUFFERED=1
-ENV PATH="/app/.venv/bin:$PATH"
+# 헬스체크 추가
+HEALTHCHECK --interval=30s --timeout=10s --start-period=10s --retries=3 \
+    CMD curl -f http://localhost:8000/health || exit 1
 
-# FastAPI 실행
+# 애플리케이션 실행
 CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000"]

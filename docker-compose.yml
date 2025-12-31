@@ -1,0 +1,80 @@
+version: '3.8'
+
+services:
+  # MySQL 데이터베이스
+  mysql:
+    image: mysql:8.0
+    container_name: aketer-mysql
+    restart: unless-stopped
+    environment:
+      MYSQL_ROOT_PASSWORD: rootpassword
+      MYSQL_DATABASE: aketer_db
+      MYSQL_USER: aketer_user
+      MYSQL_PASSWORD: aketer_password
+    ports:
+      - "3306:3306"
+    volumes:
+      - mysql_data:/var/lib/mysql
+    networks:
+      - aketer-network
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-u", "root", "-prootpassword"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # FastAPI 애플리케이션 (ChromaDB 포함)
+  api:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: aketer-api
+    restart: unless-stopped
+    ports:
+      - "8000:8000"
+    environment:
+      # Database
+      DB_HOST: mysql
+      DB_PORT: 3306
+      DB_NAME: aketer_db
+      DB_USER: aketer_user
+      DB_PASSWORD: aketer_password
+
+      # ChromaDB
+      CHROMA_PERSIST_DIR: /app/chroma_db
+
+      # Embedding Model
+      EMBEDDING_MODEL: sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2
+
+      # OpenAI (실제 API 키로 변경 필요)
+      OPENAI_API_KEY: ${OPENAI_API_KEY:-sk-your-api-key-here}
+      OPENAI_MODEL: gpt-5-mini
+      OPENAI_TEMPERATURE: 0.7
+      OPENAI_MAX_TOKENS: 2000
+      OPENAI_TIMEOUT: 60
+    volumes:
+      # ChromaDB 데이터 영구 저장
+      - chroma_data:/app/chroma_db
+      # 개발 시 코드 동기화 (프로덕션에서는 제거)
+      # - ./app:/app/app
+    depends_on:
+      mysql:
+        condition: service_healthy
+    networks:
+      - aketer-network
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+
+volumes:
+  mysql_data:
+    driver: local
+  chroma_data:
+    driver: local
+
+networks:
+  aketer-network:
+    driver: bridge

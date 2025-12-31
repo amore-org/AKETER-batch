@@ -8,11 +8,15 @@ __pycache__
 venv/
 ENV/
 env/
+*.egg-info
+dist/
+build/
 
 # Git
 .git
 .gitignore
 .gitattributes
+.github
 
 # IDE
 .vscode
@@ -20,15 +24,34 @@ env/
 *.swp
 *.swo
 *~
+.DS_Store
 
 # 테스트
 .pytest_cache
 .coverage
 htmlcov/
 *.cover
+.tox/
+.nox/
 
-# 기타
+# Docker
+Dockerfile
+docker-compose.yml
+.dockerignore
+
+# 문서
 README.md
-.DS_Store
+works.md
+*.md
+
+# 환경 변수
+.env
 .env.local
 .env.*.local
+
+# ChromaDB 데이터 (볼륨으로 마운트할 것)
+chroma_db/
+
+# 기타
+*.log
+.claude

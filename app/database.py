@@ -44,7 +44,7 @@ engine = create_engine(
     pool_size=5,
     max_overflow=10,
     connect_args=connect_args,
-    echo=False,  # SQL 로그 출력 (디버깅 시 True)
+    echo=True,  # SQL 로그 출력 활성화
 )
 
 # 세션 팩토리 생성

@@ -8,6 +8,8 @@ from typing import Dict, Any
 from app.database import SessionLocal
 from app.models import UserFeature, Persona, PersonaRepresentativeFeature
 from app.batch.clustering import FeaturePreprocessor, PersonaClusterer, RepresentativeSelector
+from app.utils.llm_client import LLMClient
+from app.config import get_settings
 
 
 logger = logging.getLogger(__name__)
@@ -98,6 +100,26 @@ class PersonaClusteringTask:
             self._update_persona_member_counts(db, labels)
             logger.info("persona.member_count 업데이트 완료")
 
+            # 7단계: LLM 프로필 생성 (NEW)
+            profiles_generated = 0
+            try:
+                profiles = self._generate_persona_profiles(db)
+
+                # 7.5단계: 프로필 DB 업데이트
+                if profiles:
+                    self._update_persona_profiles(db, profiles)
+                    profiles_generated = len(profiles)
+                    logger.info(f"LLM 프로필 생성 및 업데이트 완료 ({profiles_generated}개)")
+                else:
+                    logger.warning("생성된 프로필이 없습니다.")
+
+            except Exception as e:
+                logger.error(
+                    f"LLM 프로필 생성 실패 (배치는 계속 진행): {e}",
+                    exc_info=True
+                )
+                # 프로필 생성 실패해도 배치는 성공 처리
+
             # 결과 반환
             unique, counts = np.unique(labels, return_counts=True)
             cluster_distribution = {
@@ -111,7 +133,8 @@ class PersonaClusteringTask:
                 'total_users': len(df),
                 'n_clusters': self.n_clusters,
                 'metrics': metrics,
-                'cluster_distribution': cluster_distribution
+                'cluster_distribution': cluster_distribution,
+                'profiles_generated': profiles_generated  # NEW
             }
 
             logger.info(f"=== 페르소나 클러스터링 완료 ===")
@@ -293,8 +316,13 @@ class PersonaClusteringTask:
         # 새 대표자 저장
         save_count = 0
         for persona_id, reps in representatives.items():
-            # persona_id는 1부터 시작
+            # persona_id는 1부터 시작 (KMeans는 0-based이므로 +1)
             actual_persona_id = int(persona_id) + 1
+
+            logger.info(
+                f"대표자 저장: cluster_id={persona_id} -> persona_id={actual_persona_id}, "
+                f"대표자 수={len(reps)}"
+            )
 
             for user_id, rank, distance in reps:
                 # user_id도 1부터 시작
@@ -331,6 +359,10 @@ class PersonaClusteringTask:
 
         logger.info(f"{save_count}개 대표자 저장 완료")
 
+        # DB에 flush하여 다음 단계에서 조회 가능하게 함 (autoflush=False이므로)
+        db.flush()
+        logger.info("대표자 데이터 flush 완료")
+
         return representatives
 
     def _update_persona_member_counts(self, db: Session, labels: np.ndarray):
@@ -358,3 +390,169 @@ class PersonaClusteringTask:
                 logger.warning(f"Persona {actual_persona_id} not found (이미 생성되어야 함)")
 
         logger.info(f"{len(unique)}개 페르소나 member_count 업데이트 완료")
+
+    def _generate_persona_profiles(self, db: Session) -> Dict[int, Dict[str, str]]:
+        """7단계: LLM을 사용한 페르소나 프로필 생성
+
+        각 페르소나당 대표자 3명의 데이터를 조회하여 GPT-4o로 프로필을 생성합니다.
+
+        Args:
+            db: DB 세션
+
+        Returns:
+            {persona_id: {"name": "...", "profile_text": "..."}}
+
+        Raises:
+            개별 페르소나 실패 시 로그만 남기고 계속 진행
+        """
+        logger.info("=" * 60)
+        logger.info("7단계: LLM 페르소나 프로필 생성 시작")
+        logger.info("=" * 60)
+
+        # DB flush 확인 (5단계에서 저장한 대표자가 조회 가능하도록)
+        db.flush()
+        logger.info("DB flush 완료 - 대표자 조회 준비")
+
+        settings = get_settings()
+
+        # LLM 클라이언트 초기화
+        try:
+            llm_client = LLMClient(
+                api_key=settings.openai_api_key,
+                model=settings.openai_model,
+                temperature=settings.openai_temperature,
+                max_tokens=settings.openai_max_tokens,
+                timeout=settings.openai_timeout
+            )
+        except Exception as e:
+            logger.error(f"LLM 클라이언트 초기화 실패: {e}", exc_info=True)
+            raise
+
+        profiles = {}
+        success_count = 0
+        failure_count = 0
+
+        # 각 페르소나별로 프로필 생성
+        for persona_id in range(1, self.n_clusters + 1):
+            try:
+                # 대표자 3명 조회
+                logger.info(
+                    f"Persona {persona_id} 대표자 조회 중... "
+                    f"(persona_id={persona_id}, as_of_date={self.as_of_date})"
+                )
+
+                representatives = db.query(PersonaRepresentativeFeature).filter(
+                    PersonaRepresentativeFeature.persona_id == persona_id,
+                    PersonaRepresentativeFeature.as_of_date == self.as_of_date
+                ).order_by(PersonaRepresentativeFeature.sample_rank).all()
+
+                logger.info(f"Persona {persona_id} 대표자 조회 결과: {len(representatives)}명")
+
+                if len(representatives) == 0:
+                    # 디버깅: as_of_date로 저장된 모든 대표자 조회
+                    all_reps = db.query(PersonaRepresentativeFeature).filter(
+                        PersonaRepresentativeFeature.as_of_date == self.as_of_date
+                    ).all()
+
+                    logger.warning(
+                        f"Persona {persona_id}의 대표자가 없습니다. "
+                        f"(as_of_date={self.as_of_date}에 저장된 전체 대표자: {len(all_reps)}명)"
+                    )
+
+                    if len(all_reps) > 0:
+                        # 어떤 persona_id가 있는지 확인
+                        existing_persona_ids = set([rep.persona_id for rep in all_reps])
+                        logger.warning(f"존재하는 persona_id: {sorted(existing_persona_ids)}")
+
+                    failure_count += 1
+                    continue
+
+                # 대표자 데이터를 딕셔너리 리스트로 변환
+                reps_data = []
+                for rep in representatives:
+                    rep_dict = {
+                        "rank": rep.sample_rank,
+                        "age_band": rep.age_band,
+                        "primary_category": rep.primary_category,
+                        "core_keyword": rep.core_keyword,
+                        "trend_keyword": rep.trend_keyword,
+                        "price_sensitivity": rep.price_sensitivity.value if rep.price_sensitivity else None,
+                        "benefit_sensitivity": rep.benefit_sensitivity.value if rep.benefit_sensitivity else None,
+                        "brand_loyalty": rep.brand_loyalty.value if rep.brand_loyalty else None,
+                        "purchase_style": rep.purchase_style.value if rep.purchase_style else None,
+                        "price_sensitivity_score": rep.price_sensitivity_score or 0.0,
+                        "benefit_sensitivity_score": rep.benefit_sensitivity_score or 0.0,
+                        "brand_loyalty_score": rep.brand_loyalty_score or 0.0,
+                    }
+                    reps_data.append(rep_dict)
+
+                logger.info(
+                    f"Persona {persona_id} 프로필 생성 중... "
+                    f"(대표자 {len(reps_data)}명)"
+                )
+
+                # LLM 프로필 생성
+                profile = llm_client.generate_persona_profile(
+                    representatives_data=reps_data,
+                    persona_id=persona_id
+                )
+
+                profiles[persona_id] = profile
+                success_count += 1
+
+                logger.info(
+                    f"✓ Persona {persona_id} 프로필 생성 완료: "
+                    f"이름='{profile['name']}', "
+                    f"길이={len(profile['profile_text'])}자"
+                )
+
+            except Exception as e:
+                logger.error(
+                    f"✗ Persona {persona_id} 프로필 생성 실패: {e}",
+                    exc_info=True
+                )
+                failure_count += 1
+                # 개별 실패는 전체 배치를 중단하지 않음
+                continue
+
+        logger.info("=" * 60)
+        logger.info(
+            f"프로필 생성 완료 - 성공: {success_count}/{self.n_clusters}, "
+            f"실패: {failure_count}/{self.n_clusters}"
+        )
+        logger.info("=" * 60)
+
+        return profiles
+
+    def _update_persona_profiles(
+        self,
+        db: Session,
+        profiles: Dict[int, Dict[str, str]]
+    ):
+        """7.5단계: 생성된 프로필을 persona 테이블에 업데이트
+
+        Args:
+            db: DB 세션
+            profiles: {persona_id: {"name": "...", "profile_text": "..."}}
+        """
+        logger.info("persona 테이블 프로필 업데이트 시작")
+
+        update_count = 0
+
+        for persona_id, profile in profiles.items():
+            persona = db.query(Persona).filter(Persona.id == persona_id).first()
+
+            if persona:
+                persona.name = profile["name"]
+                persona.profile_text = profile["profile_text"]
+                persona.updated_at = datetime.utcnow()
+                update_count += 1
+
+                logger.info(
+                    f"Persona {persona_id} 업데이트: "
+                    f"{profile['name']} ({len(profile['profile_text'])}자)"
+                )
+            else:
+                logger.warning(f"Persona {persona_id} not found (존재해야 함)")
+
+        logger.info(f"{update_count}개 페르소나 프로필 업데이트 완료")

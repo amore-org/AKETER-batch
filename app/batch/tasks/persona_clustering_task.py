@@ -3,12 +3,15 @@ import logging
 import numpy as np
 import pandas as pd
 from sqlalchemy.orm import Session
-from typing import Dict, Any
+from typing import Dict, Any, List, Tuple
 
 from app.database import SessionLocal
-from app.models import UserFeature, Persona, PersonaRepresentativeFeature
+from app.models import UserFeature, Persona, PersonaRepresentativeFeature, PersonaItem, ItemFeature
 from app.batch.clustering import FeaturePreprocessor, PersonaClusterer, RepresentativeSelector
 from app.utils.llm_client import LLMClient
+from app.utils.embedding_client import EmbeddingClient
+from app.utils.chroma_client import ChromaClient
+from app.batch.matching import PersonaEmbedder, ItemEmbedder, CollaborativeFilter
 from app.config import get_settings
 
 
@@ -120,6 +123,22 @@ class PersonaClusteringTask:
                 )
                 # 프로필 생성 실패해도 배치는 성공 처리
 
+            # 8단계: 페르소나-아이템 매칭 (NEW)
+            interactions_saved = 0
+            try:
+                matching_result = self._run_item_matching(db)
+                interactions_saved = matching_result.get('interactions_saved', 0)
+                logger.info(
+                    f"페르소나-아이템 매칭 완료: {interactions_saved}개 매칭 저장"
+                )
+
+            except Exception as e:
+                logger.error(
+                    f"페르소나-아이템 매칭 실패 (배치는 계속 진행): {e}",
+                    exc_info=True
+                )
+                # 매칭 실패해도 배치는 성공 처리
+
             # 결과 반환
             unique, counts = np.unique(labels, return_counts=True)
             cluster_distribution = {
@@ -134,7 +153,8 @@ class PersonaClusteringTask:
                 'n_clusters': self.n_clusters,
                 'metrics': metrics,
                 'cluster_distribution': cluster_distribution,
-                'profiles_generated': profiles_generated  # NEW
+                'profiles_generated': profiles_generated,
+                'interactions_saved': interactions_saved  # NEW
             }
 
             logger.info(f"=== 페르소나 클러스터링 완료 ===")
@@ -556,3 +576,336 @@ class PersonaClusteringTask:
                 logger.warning(f"Persona {persona_id} not found (존재해야 함)")
 
         logger.info(f"{update_count}개 페르소나 프로필 업데이트 완료")
+
+    def _run_item_matching(self, db: Session) -> Dict[str, Any]:
+        """8단계: 페르소나-아이템 매칭 (벡터 유사도 + 협업 필터링)
+
+        Args:
+            db: DB 세션
+
+        Returns:
+            매칭 결과 딕셔너리
+        """
+        logger.info("=" * 60)
+        logger.info("8단계: 페르소나-아이템 매칭 시작")
+        logger.info("=" * 60)
+
+        settings = get_settings()
+
+        # 8.1: 클라이언트 초기화
+        logger.info("8.1: 클라이언트 초기화")
+
+        embedding_client = EmbeddingClient(settings.embedding_model)
+        chroma_client = ChromaClient(settings.chroma_persist_dir)
+
+        persona_embedder = PersonaEmbedder(embedding_client)
+        item_embedder = ItemEmbedder(embedding_client)
+        cf_filter = CollaborativeFilter()
+
+        # 8.2: 페르소나 임베딩 생성
+        logger.info("8.2: 페르소나 임베딩 생성")
+
+        persona_ids = list(range(1, self.n_clusters + 1))
+        persona_embeddings = persona_embedder.generate_all_persona_embeddings(
+            db, persona_ids, self.as_of_date
+        )
+
+        logger.info(f"페르소나 임베딩: {len(persona_embeddings)}개 생성")
+
+        # 8.3: 아이템 임베딩 생성
+        logger.info("8.3: 아이템 임베딩 생성")
+
+        item_embeddings = item_embedder.generate_all_item_embeddings(
+            db, batch_size=settings.matching_batch_size
+        )
+
+        logger.info(f"아이템 임베딩: {len(item_embeddings)}개 생성")
+
+        if not item_embeddings:
+            logger.warning("아이템 임베딩이 없음 - 매칭 스킵")
+            return {'interactions_saved': 0}
+
+        # 8.4: ChromaDB에 저장
+        logger.info("8.4: ChromaDB에 임베딩 저장")
+
+        # 페르소나 임베딩 저장
+        if persona_embeddings:
+            chroma_client.add_embeddings(
+                collection_name="personas",
+                ids=[str(pid) for pid in persona_embeddings.keys()],
+                embeddings=[emb.tolist() for emb in persona_embeddings.values()],
+                metadatas=[{"persona_id": pid} for pid in persona_embeddings.keys()]
+            )
+
+        # 아이템 임베딩 저장
+        chroma_client.add_embeddings(
+            collection_name="items",
+            ids=[str(item_id) for item_id in item_embeddings.keys()],
+            embeddings=[emb.tolist() for emb in item_embeddings.values()],
+            metadatas=[{"item_id": item_id} for item_id in item_embeddings.keys()]
+        )
+
+        # 8.5: 페르소나별 매칭
+        logger.info("8.5: 페르소나별 매칭 시작")
+
+        total_interactions = 0
+
+        for persona_id in persona_ids:
+            if persona_id not in persona_embeddings:
+                logger.warning(f"Persona {persona_id}: 임베딩 없음 - 스킵")
+                continue
+
+            try:
+                # 8.5.1: 유사도 계산 (Top N)
+                persona_embedding = persona_embeddings[persona_id]
+
+                search_result = chroma_client.search(
+                    collection_name="items",
+                    query_embedding=persona_embedding.tolist(),
+                    n_results=settings.matching_top_n
+                )
+
+                similar_items = self._parse_similarity_results(search_result)
+
+                # 8.5.2: 협업 필터링 (Top N)
+                cf_items = cf_filter.calculate_cf_scores(
+                    db, persona_id, top_n=settings.matching_top_n
+                )
+
+                # 8.5.3: 점수 결합 및 순위 결정
+                final_items = self._merge_and_rank(
+                    similar_items,
+                    cf_items,
+                    similarity_weight=settings.matching_similarity_weight,
+                    cf_weight=settings.matching_cf_weight,
+                    top_n=settings.matching_top_n
+                )
+
+                # 8.5.3.5: 판매 선호도 재랭킹 (NEW)
+                final_items = self._rerank_with_sales_preference(
+                    db,
+                    final_items,
+                    alpha=settings.reranking_alpha
+                )
+
+                # 8.5.4: DB 저장
+                saved_count = self._save_interactions(db, persona_id, final_items)
+                total_interactions += saved_count
+
+                logger.info(
+                    f"Persona {persona_id}: {saved_count}개 매칭 저장 "
+                    f"(유사도: {len(similar_items)}, CF: {len(cf_items)})"
+                )
+
+            except Exception as e:
+                logger.error(
+                    f"Persona {persona_id} 매칭 실패: {e}",
+                    exc_info=True
+                )
+                # 개별 페르소나 매칭 실패해도 패스
+                continue
+
+        logger.info("=" * 60)
+        logger.info(f"페르소나-아이템 매칭 완료: 총 {total_interactions}개 저장")
+        logger.info("=" * 60)
+
+        return {'interactions_saved': total_interactions}
+
+    def _parse_similarity_results(
+        self,
+        search_result: Dict[str, Any]
+    ) -> List[Tuple[int, float]]:
+        """ChromaDB 검색 결과를 (item_id, similarity_score) 리스트로 변환
+
+        ChromaDB는 거리(distance)를 반환하므로 유사도로 변환:
+        - distance가 낮을수록 유사함
+        - similarity = 1 - distance (L2 distance 가정)
+
+        Args:
+            search_result: ChromaDB 검색 결과
+
+        Returns:
+            [(item_id, similarity_score), ...] 리스트
+        """
+        if not search_result['ids'] or not search_result['ids'][0]:
+            return []
+
+        item_ids = search_result['ids'][0]
+        distances = search_result['distances'][0]
+
+        # Distance를 유사도로 변환 (0~1 범위)
+        # ChromaDB는 L2 distance를 반환
+        # similarity = 1 / (1 + distance)
+        similarities = [1.0 / (1.0 + dist) for dist in distances]
+
+        results = [
+            (int(item_id), similarity)
+            for item_id, similarity in zip(item_ids, similarities)
+        ]
+
+        return results
+
+    def _merge_and_rank(
+        self,
+        similar_items: List[Tuple[int, float]],
+        cf_items: List[Tuple[int, float]],
+        similarity_weight: float,
+        cf_weight: float,
+        top_n: int
+    ) -> List[Dict[str, Any]]:
+        """유사도와 CF 점수를 결합하여 최종 순위 결정
+
+        Args:
+            similar_items: [(item_id, similarity_score), ...]
+            cf_items: [(item_id, cf_score), ...]
+            similarity_weight: 유사도 가중치
+            cf_weight: CF 가중치
+            top_n: 최종 선택할 아이템 수
+
+        Returns:
+            [
+                {
+                    "item_id": int,
+                    "rank": int,
+                    "similarity_score": float,
+                    "cf_score": float,
+                    "final_score": float
+                },
+                ...
+            ]
+        """
+        # 딕셔너리로 변환
+        similarity_dict = {item_id: score for item_id, score in similar_items}
+        cf_dict = {item_id: score for item_id, score in cf_items}
+
+        # 모든 아이템 ID 수집
+        all_item_ids = set(similarity_dict.keys()) | set(cf_dict.keys())
+
+        # 최종 점수 계산
+        scored_items = []
+
+        for item_id in all_item_ids:
+            sim_score = similarity_dict.get(item_id, 0.0)
+            cf_score = cf_dict.get(item_id, 0.0)
+
+            # 가중 평균
+            final_score = similarity_weight * sim_score + cf_weight * cf_score
+
+            scored_items.append({
+                "item_id": item_id,
+                "similarity_score": sim_score,
+                "cf_score": cf_score,
+                "final_score": final_score
+            })
+
+        # 최종 점수로 정렬
+        scored_items.sort(key=lambda x: x['final_score'], reverse=True)
+
+        # Top N 선택 및 순위 부여
+        top_items = scored_items[:top_n]
+
+        for rank, item in enumerate(top_items, start=1):
+            item['rank'] = rank
+
+        return top_items
+
+    def _rerank_with_sales_preference(
+        self,
+        db: Session,
+        items: List[Dict[str, Any]],
+        alpha: float
+    ) -> List[Dict[str, Any]]:
+        """판매 선호도를 반영한 재랭킹
+
+        Args:
+            db: DB 세션
+            items: 매칭된 아이템 리스트 (final_score 포함)
+            alpha: 재랭킹 가중치 (0~1)
+                   new_final = α * 기존_final + (1-α) * sales_preference
+
+        Returns:
+            재랭킹된 아이템 리스트
+        """
+        if not items:
+            return []
+
+        # 아이템 ID 수집
+        item_ids = [item['item_id'] for item in items]
+
+        # ItemFeature에서 sales_preference_score 조회
+        item_features = db.query(ItemFeature).filter(
+            ItemFeature.item_id.in_(item_ids)
+        ).all()
+
+        # item_id -> sales_preference_score 매핑
+        sales_scores = {
+            item.item_id: item.sales_preference_score or 0.0
+            for item in item_features
+        }
+
+        # 재랭킹: 새로운 final_score 계산
+        for item in items:
+            item_id = item['item_id']
+            current_final = item['final_score']
+            sales_score = sales_scores.get(item_id, 0.0)
+
+            # new_final = α * 기존_final + (1-α) * sales_preference
+            new_final = alpha * current_final + (1 - alpha) * sales_score
+
+            item['original_final_score'] = current_final
+            item['sales_preference_score'] = sales_score
+            item['final_score'] = new_final
+
+        # 새로운 final_score로 재정렬
+        items.sort(key=lambda x: x['final_score'], reverse=True)
+
+        # 순위 재부여
+        for rank, item in enumerate(items, start=1):
+            item['rank'] = rank
+
+        logger.debug(
+            f"재랭킹 완료: {len(items)}개 아이템 "
+            f"(α={alpha:.2f}, sales 가중치={(1-alpha):.2f})"
+        )
+
+        return items
+
+    def _save_interactions(
+        self,
+        db: Session,
+        persona_id: int,
+        items: List[Dict[str, Any]]
+    ) -> int:
+        """매칭 결과를 persona_item 테이블에 저장
+
+        Args:
+            db: DB 세션
+            persona_id: 페르소나 ID
+            items: 매칭된 아이템 리스트
+
+        Returns:
+            저장된 레코드 수
+        """
+        if not items:
+            return 0
+
+        # 기존 매칭 삭제 (동일 persona_id)
+        db.query(PersonaItem).filter(
+            PersonaItem.persona_id == persona_id
+        ).delete()
+
+        # 새 매칭 저장
+        for item in items:
+            persona_item = PersonaItem(
+                persona_id=persona_id,
+                item_id=item['item_id'],
+                item_rank=item['rank'],
+                similarity_score=item['similarity_score'],
+                score=item['cf_score'],  # score 필드에 cf_score 저장
+                final_score=item['final_score']
+            )
+            db.add(persona_item)
+
+        db.flush()
+
+        return len(items)

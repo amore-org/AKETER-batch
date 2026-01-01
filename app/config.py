@@ -14,6 +14,8 @@ class Settings(BaseSettings):
 
     # ChromaDB
     chroma_persist_dir: str = "./chroma_db"
+    chroma_host: str = "localhost"
+    chroma_port: int = 8000
 
     # Embedding Model
     embedding_model: str = "sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2"
@@ -31,6 +33,16 @@ class Settings(BaseSettings):
     clustering_schedule_cron: str = "0 3 * * 0"  # 매주 일요일 새벽 3시
     log_level: str = "INFO"
     log_dir: str = "logs"
+
+    # 매칭 설정
+    matching_top_n: int = 5
+    matching_similarity_weight: float = 0.6
+    matching_cf_weight: float = 0.4
+    matching_batch_size: int = 100
+
+    # 재랭킹 설정 (판매 선호도 반영)
+     # final_score = α*기존final + (1-α)*sales_preference
+    reranking_alpha: float = 0.7
 
     model_config = SettingsConfigDict(
         env_file=".env",

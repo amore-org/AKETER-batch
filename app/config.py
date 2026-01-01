@@ -34,6 +34,16 @@ class Settings(BaseSettings):
     log_level: str = "INFO"
     log_dir: str = "logs"
 
+    # 매칭 설정
+    matching_top_n: int = 5
+    matching_similarity_weight: float = 0.6
+    matching_cf_weight: float = 0.4
+    matching_batch_size: int = 100
+
+    # 재랭킹 설정 (판매 선호도 반영)
+     # final_score = α*기존final + (1-α)*sales_preference
+    reranking_alpha: float = 0.7
+
     model_config = SettingsConfigDict(
         env_file=".env",
         case_sensitive=False,

@@ -1,42 +1,38 @@
-annotated-doc==0.0.4
-annotated-types==0.7.0
-anyio==4.12.0
-certifi==2025.11.12
-click==8.3.1
-colorama==0.4.6
-dnspython==2.8.0
-email-validator==2.3.0
-fastapi==0.128.0
-fastapi-cli==0.0.20
-fastapi-cloud-cli==0.8.0
-fastar==0.8.0
-h11==0.16.0
-httpcore==1.0.9
-httptools==0.7.1
-httpx==0.28.1
-idna==3.11
-jinja2==3.1.6
-markdown-it-py==4.0.0
-markupsafe==3.0.3
-mdurl==0.1.2
-pydantic==2.12.5
-pydantic-core==2.41.5
-pydantic-extra-types==2.10.6
-pydantic-settings==2.12.0
-pygments==2.19.2
-python-dotenv==1.2.1
-python-multipart==0.0.21
-pyyaml==6.0.3
-rich==14.2.0
-rich-toolkit==0.17.1
-rignore==0.7.6
-sentry-sdk==2.48.0
-shellingham==1.5.4
-starlette==0.50.0
-typer==0.21.0
-typing-extensions==4.15.0
-typing-inspection==0.4.2
-urllib3==2.6.2
-uvicorn==0.40.0
-watchfiles==1.1.1
-websockets==15.0.1
+# FastAPI 및 웹 프레임워크
+fastapi>=0.115.0
+uvicorn[standard]>=0.32.0
+starlette>=0.41.0
+pydantic>=2.10.0
+pydantic-settings>=2.6.0
+
+# CLI 및 유틸리티
+typer>=0.12.0
+click>=8.1.0
+python-dotenv>=1.0.0
+
+# 데이터베이스
+sqlalchemy>=2.0.36
+pymysql>=1.1.0
+cryptography>=43.0.0
+
+# 클러스터링 및 데이터 처리
+numpy>=1.26.4
+pandas>=2.2.3
+scikit-learn>=1.6.0
+
+# 벡터 DB 및 임베딩
+#chromadb>=0.5.0
+#sentence-transformers>=3.3.0
+
+# LLM
+openai>=1.57.0
+
+# 스케줄러
+apscheduler>=3.10.4
+
+# 유틸리티
+python-dateutil>=2.9.0
+tenacity>=9.0.0
+
+# HTTP 클라이언트
+httpx>=0.28.0

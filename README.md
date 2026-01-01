@@ -1,9 +1,10 @@
 # AKETER-batch
-CRM 메시지 자동 제작 AI agent Python batch
 
-## 설치
+CRM AI agent Python batch
+
+## 설치 방법
 1. uv install
-2. uv pip install -r requirements.txt
+2. uv sync
 
-## 실행
-uv run fastapi dev
+## 실행 
+uv run run_batch.py

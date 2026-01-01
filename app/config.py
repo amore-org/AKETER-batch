@@ -14,6 +14,8 @@ class Settings(BaseSettings):
 
     # ChromaDB
     chroma_persist_dir: str = "./chroma_db"
+    chroma_host: str = "localhost"
+    chroma_port: int = 8000
 
     # Embedding Model
     embedding_model: str = "sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2"

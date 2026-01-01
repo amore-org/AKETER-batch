@@ -3,16 +3,18 @@ name = "aketer-batch"
 version = "1.0.0"
 description = "AKETER 페르소나 클러스터링 배치 시스템"
 readme = "README.md"
-requires-python = ">=3.14"
+requires-python = ">=3.12,<3.14"
 dependencies = [
     # FastAPI 및 웹 프레임워크
-    "fastapi[standard]>=0.128.0",
-    "uvicorn>=0.40.0",
+    "fastapi>=0.115.0",
+    "uvicorn[standard]>=0.32.0",
+    "starlette>=0.41.0",
     "pydantic>=2.10.0",
     "pydantic-settings>=2.6.0",
 
     # CLI 및 유틸리티
     "typer>=0.12.0",
+    "click>=8.1.0",
     "python-dotenv>=1.0.0",
 
     # 데이터베이스
@@ -25,6 +27,10 @@ dependencies = [
     "pandas>=2.2.3",
     "scikit-learn>=1.6.0",
 
+    # 벡터 DB 및 임베딩
+    "chromadb>=1.4.0",
+    "sentence-transformers>=3.3.0",
+
     # LLM
     "openai>=1.57.0",
 
@@ -34,6 +40,9 @@ dependencies = [
     # 유틸리티
     "python-dateutil>=2.9.0",
     "tenacity>=9.0.0",
+
+    # HTTP 클라이언트
+    "httpx>=0.28.0",
 ]
 
 [build-system]

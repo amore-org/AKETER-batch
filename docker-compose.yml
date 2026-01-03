@@ -6,6 +6,8 @@ services:
       - "8000:8000"
     volumes:
       - chroma_data:/app/chroma
+    networks:
+      - aketer-network
 
   # FastAPI 애플리케이션
   api:
@@ -15,7 +17,9 @@ services:
     container_name: aketer-batch
     restart: unless-stopped
     ports:
-      - "8100:8100"
+      - "8100:8000"
+    volumes:
+      - chroma_data:/app/chroma_db
     environment:
       # Database
       DB_HOST: ${DB_HOST}

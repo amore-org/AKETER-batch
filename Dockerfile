@@ -1,5 +1,5 @@
-# Python 3.11 + uv 멀티스테이지 빌드
-FROM python:3.11-slim AS builder
+# Python 3.12 + uv 멀티스테이지 빌드
+FROM python:3.12-slim AS builder
 
 # uv 설치
 COPY --from=ghcr.io/astral-sh/uv:latest /uv /usr/local/bin/uv
@@ -14,12 +14,12 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     build-essential \
     && rm -rf /var/lib/apt/lists/*
 
-# Python 의존성 복사 및 설치
-COPY requirements.txt .
-RUN uv pip install --system --no-cache -r requirements.txt
+# pyproject.toml 복사 및 의존성 설치
+COPY pyproject.toml .
+RUN uv pip install --system --no-cache .
 
 # 최종 실행 이미지
-FROM python:3.11-slim
+FROM python:3.12-slim
 
 # 작업 디렉토리 설정
 WORKDIR /app
@@ -31,8 +31,8 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     && rm -rf /var/lib/apt/lists/*
 
 # builder 스테이지에서 설치한 Python 패키지 복사
-COPY --from=builder /usr/local/lib/python3.11/site-packages /usr/local/lib/python3.11/site-packages
-COPY --from=builder /usr/local/bin /usr/local/bin
+COPY --from=builder /usr/local/lib/python3.12/site-packages /usr/local/lib/python3.12/site-packages
+COPY --from=builder /usr/local/bin/uvicorn /usr/local/bin/uvicorn
 
 ENV PYTHONUNBUFFERED=1
 

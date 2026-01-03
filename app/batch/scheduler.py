@@ -47,8 +47,6 @@ def setup_scheduler():
     )
 
     logger.info(f"배치 스케줄러 설정 완료 - Cron: {settings.clustering_schedule_cron}")
-    logger.info(f"다음 실행 시간: {scheduler.get_job('persona_clustering_batch').next_run_time}")
-
 
 def run_persona_clustering():
     """페르소나 클러스터링 배치 작업 실행"""

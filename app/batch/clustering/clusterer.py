@@ -15,14 +15,14 @@ class PersonaClusterer:
         """
         Args:
             n_clusters: 페르소나 군집 수
-            random_state: 난수 시드 (재현성)
+            random_state: 난수 시드
         """
         self.n_clusters = n_clusters
         self.random_state = random_state
         self.kmeans = KMeans(
             n_clusters=n_clusters,
             random_state=random_state,
-            n_init=10,  # 여러 초기화 시도
+            n_init=10,
             max_iter=300,
             algorithm='lloyd'
         )

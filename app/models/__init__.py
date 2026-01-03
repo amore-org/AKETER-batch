@@ -1,4 +1,5 @@
 from .base import Base
+from .user import User
 from .user_feature import UserFeature
 from .persona import Persona
 from .persona_representative_feature import PersonaRepresentativeFeature
@@ -14,6 +15,7 @@ from .persona_item import PersonaItem
 
 __all__ = [
     "Base",
+    "User",
     "UserFeature",
     "Persona",
     "PersonaRepresentativeFeature",

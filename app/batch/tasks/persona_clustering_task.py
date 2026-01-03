@@ -6,7 +6,7 @@ from sqlalchemy.orm import Session
 from typing import Dict, Any, List, Tuple
 
 from app.database import SessionLocal
-from app.models import UserFeature, Persona, PersonaRepresentativeFeature, PersonaItem, ItemFeature
+from app.models import User, UserFeature, Persona, PersonaRepresentativeFeature, PersonaItem, ItemFeature
 from app.batch.clustering import FeaturePreprocessor, PersonaClusterer, RepresentativeSelector
 from app.utils.llm_client import LLMClient
 from app.utils.embedding_client import EmbeddingClient
@@ -172,7 +172,7 @@ class PersonaClusteringTask:
             db.close()
 
     def _load_user_features(self, db: Session) -> pd.DataFrame:
-        """1단계: user_feature 데이터 로드
+        """1단계: user_feature 데이터 로드 (활성 유저만)
 
         Args:
             db: DB 세션
@@ -180,10 +180,11 @@ class PersonaClusteringTask:
         Returns:
             유저 피처 데이터프레임
         """
-        logger.info(f"DB에서 user_feature 데이터 로드 중... (as_of_date={self.as_of_date})")
-
-        query = db.query(UserFeature).filter(
-            UserFeature.as_of_date == self.as_of_date
+        query = db.query(UserFeature).join(
+            User, UserFeature.user_id == User.id
+        ).filter(
+            UserFeature.as_of_date == self.as_of_date,
+            User.is_active == True
         )
 
         data = []

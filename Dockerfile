@@ -1,5 +1,8 @@
-# Python 3.11을 기반으로 하는 멀티스테이지 빌드
-FROM python:3.11-slim as builder
+# Python 3.11 + uv 멀티스테이지 빌드
+FROM python:3.11-slim AS builder
+
+# uv 설치
+COPY --from=ghcr.io/astral-sh/uv:latest /uv /usr/local/bin/uv
 
 # 작업 디렉토리 설정
 WORKDIR /build
@@ -9,12 +12,11 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     gcc \
     g++ \
     build-essential \
-    libgomp1 \
     && rm -rf /var/lib/apt/lists/*
 
 # Python 의존성 복사 및 설치
 COPY requirements.txt .
-RUN pip install --no-cache-dir --user -r requirements.txt
+RUN uv pip install --system --no-cache -r requirements.txt
 
 # 최종 실행 이미지
 FROM python:3.11-slim
@@ -29,15 +31,13 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     && rm -rf /var/lib/apt/lists/*
 
 # builder 스테이지에서 설치한 Python 패키지 복사
-COPY --from=builder /root/.local /root/.local
+COPY --from=builder /usr/local/lib/python3.11/site-packages /usr/local/lib/python3.11/site-packages
+COPY --from=builder /usr/local/bin /usr/local/bin
 
-# PATH에 로컬 bin 추가
-ENV PATH=/root/.local/bin:$PATH
 ENV PYTHONUNBUFFERED=1
 
 # 애플리케이션 코드 복사
 COPY ./app /app/app
-COPY .env.example /app/.env
 
 # ChromaDB 데이터 디렉토리 생성
 RUN mkdir -p /app/chroma_db

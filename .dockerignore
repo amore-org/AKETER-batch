@@ -40,9 +40,8 @@ docker-compose.yml
 .dockerignore
 
 # 문서
-README.md
 works.md
-*.md
+docs/
 
 # 환경 변수
 .env

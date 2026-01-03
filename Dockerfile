@@ -15,7 +15,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     && rm -rf /var/lib/apt/lists/*
 
 # pyproject.toml 복사 및 의존성 설치
-COPY pyproject.toml .
+COPY pyproject.toml README.md ./
 RUN uv pip install --system --no-cache .
 
 # 최종 실행 이미지

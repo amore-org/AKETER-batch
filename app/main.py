@@ -13,6 +13,7 @@ import logging
 from app.utils.logging_config import setup_logging
 from app.config import get_settings
 from app.batch.scheduler import setup_scheduler, start_scheduler, shutdown_scheduler, get_scheduler_status
+from app.utils.chroma_client import ChromaClient
 
 # 설정 및 로깅 초기화
 settings = get_settings()
@@ -83,6 +84,17 @@ async def startup_event():
     logger.info("=" * 60)
     logger.info(f"API 문서: http://localhost:8000/docs")
     logger.info("=" * 60)
+
+    # ChromaDB 컬렉션 초기화
+    try:
+        chroma_client = ChromaClient(persist_directory=settings.chroma_persist_dir)
+        chroma_client.get_or_create_collection(
+            name="aketer_ethics_policy",
+            metadata={"description": "AKETER 윤리 정책 컬렉션"}
+        )
+        logger.info("ChromaDB 'aketer_ethics_policy' 컬렉션 초기화 완료")
+    except Exception as e:
+        logger.error(f"ChromaDB 초기화 실패: {e}")
 
     # 배치 스케줄러 설정 및 시작
     setup_scheduler()

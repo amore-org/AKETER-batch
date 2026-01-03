@@ -597,7 +597,7 @@ class PersonaClusteringTask:
         logger.info("8.1: 클라이언트 초기화")
 
         embedding_client = EmbeddingClient(settings.embedding_model)
-        chroma_client = ChromaClient(settings.chroma_persist_dir)
+        chroma_client = ChromaClient(host=settings.chroma_host, port=settings.chroma_port)
 
         persona_embedder = PersonaEmbedder(embedding_client)
         item_embedder = ItemEmbedder(embedding_client)

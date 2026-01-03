@@ -87,7 +87,7 @@ async def startup_event():
 
     # ChromaDB 컬렉션 초기화
     try:
-        chroma_client = ChromaClient(persist_directory=settings.chroma_persist_dir)
+        chroma_client = ChromaClient(host=settings.chroma_host, port=settings.chroma_port)
         chroma_client.get_or_create_collection(
             name="aketer_ethics_policy",
             metadata={"description": "AKETER 윤리 정책 컬렉션"}

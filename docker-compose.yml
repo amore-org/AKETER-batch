@@ -18,8 +18,8 @@ services:
     restart: unless-stopped
     ports:
       - "8100:8000"
-    volumes:
-      - chroma_data:/app/chroma_db
+    depends_on:
+      - chroma
     environment:
       # Database
       DB_HOST: ${DB_HOST}
@@ -29,7 +29,8 @@ services:
       DB_PASSWORD: ${DB_PASSWORD}
 
       # ChromaDB
-      CHROMA_PERSIST_DIR: /app/chroma_db
+      CHROMA_HOST: chroma
+      CHROMA_PORT: 8000
 
       # Embedding Model
       EMBEDDING_MODEL: ${EMBEDDING_MODEL}

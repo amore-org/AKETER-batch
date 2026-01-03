@@ -10,21 +10,23 @@ logger = logging.getLogger(__name__)
 class ChromaClient:
     """ChromaDB 벡터 데이터베이스 클라이언트"""
 
-    def __init__(self, persist_directory: str):
+    def __init__(self, host: str = "localhost", port: int = 8000):
         """ChromaDB 클라이언트 초기화
 
         Args:
-            persist_directory: 벡터 DB 영구 저장 디렉토리
+            host: ChromaDB 서버 호스트
+            port: ChromaDB 서버 포트
         """
-        self.persist_directory = persist_directory
-        logger.info(f"ChromaDB 초기화: persist_dir={persist_directory}")
+        self.host = host
+        self.port = port
+        logger.info(f"ChromaDB 초기화: host={host}, port={port}")
 
-        # PersistentClient 생성 (영구 저장)
-        self.client = chromadb.PersistentClient(
-            path=persist_directory,
+        # HttpClient 생성 (ChromaDB 서버 연결)
+        self.client = chromadb.HttpClient(
+            host=host,
+            port=port,
             settings=Settings(
                 anonymized_telemetry=False,
-                allow_reset=True
             )
         )
 
